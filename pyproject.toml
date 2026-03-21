@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vaultmem"
+version = "0.1.1"
+description = "Zero-knowledge encrypted memory library for personal AI agents"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Avinash Gosavi" }
+]
+keywords = [
+    "ai", "memory", "encryption", "zero-knowledge",
+    "llm", "agents", "privacy", "personal-ai"
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security :: Cryptography",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42.0",
+    "argon2-cffi>=23.1",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Local embeddings (pulls in PyTorch — ~2 GB download)
+local = [
+    "sentence-transformers>=3.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-benchmark>=4.0",
+    "sentence-transformers>=3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aag1091-alt/vaultmem"
+Repository = "https://github.com/aag1091-alt/vaultmem"
+
+[tool.setuptools.packages.find]
+where = ["src"]
