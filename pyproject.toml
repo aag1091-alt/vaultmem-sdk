@@ -46,8 +46,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aag1091-alt/vaultmem"
-Repository = "https://github.com/aag1091-alt/vaultmem"
+Homepage = "https://github.com/aag1091-alt/vaultmem-sdk"
+Repository = "https://github.com/aag1091-alt/vaultmem-sdk"
 
 [tool.setuptools.packages.find]
 where = ["src"]
