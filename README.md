@@ -10,6 +10,8 @@ VaultMem is an embeddable Python library that gives AI agents persistent, encryp
 
 It implements Layer 1 (Personal Storage Layer) of the [Memory-as-Asset framework](https://arxiv.org/abs/2603.14212) (Pan, Huang & Yang, 2026).
 
+**Preprint:** https://doi.org/10.5281/zenodo.19154079
+
 ---
 
 ## The Problem
