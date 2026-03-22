@@ -39,6 +39,18 @@ dependencies = [
 local = [
     "sentence-transformers>=3.0",
 ]
+# AWS S3 blob storage
+s3 = [
+    "boto3>=1.26",
+]
+# PostgreSQL search index
+postgres = [
+    "psycopg2-binary>=2.9",
+]
+# ANN vector index (HNSW)
+ann = [
+    "hnswlib>=0.8",
+]
 dev = [
     "pytest>=8.0",
     "pytest-benchmark>=4.0",

@@ -49,6 +49,11 @@ from .models import (
 # ── Embedders ─────────────────────────────────────────────────────────────────
 from .embedder import Embedder, LocalEmbedder, NullEmbedder, OllamaEmbedder
 
+# ── Storage backends ──────────────────────────────────────────────────────────
+from .storage import BlobStore, FileBlobStore, S3BlobStore, migrate_vault
+from .index import SearchIndex, SQLiteSearchIndex, PostgresSearchIndex, IndexRecord, IndexQuery
+from .vector_index import VectorIndex, HNSWVectorIndex
+
 # ── Classifier ───────────────────────────────────────────────────────────────
 from .classifier import classify, classify_with_features
 
@@ -83,6 +88,19 @@ __all__ = [
     "LocalEmbedder",
     "NullEmbedder",
     "OllamaEmbedder",
+    # Storage backends
+    "BlobStore",
+    "FileBlobStore",
+    "S3BlobStore",
+    "migrate_vault",
+    "SearchIndex",
+    "SQLiteSearchIndex",
+    "PostgresSearchIndex",
+    "IndexRecord",
+    "IndexQuery",
+    # Vector index
+    "VectorIndex",
+    "HNSWVectorIndex",
     # Classifier
     "classify",
     "classify_with_features",
