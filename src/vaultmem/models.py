@@ -154,11 +154,27 @@ class MemoryObject:
     # ── Language (always per-atom, auto-detected) ─────────────────────────
     language: str = "en"
 
+    # ── Media / multi-modal fields (v2, all optional) ─────────────────────
+    content_type: str = "text/plain"          # MIME type; "text/plain" for text atoms
+    captured_at: Optional[int] = None         # Real-world event timestamp (≠ created_at)
+    media_blob_id: Optional[str] = None       # UUID → encrypted media file in vault/media/
+    media_source_path: Optional[str] = None   # Original filename (stored encrypted inside atom)
+    location: Optional[dict] = None           # {lat, lon, place} from EXIF or manual
+
     def __post_init__(self) -> None:
         if not self.id:
             self.id = str(uuid.uuid4())
         if not self.created_at:
             self.created_at = int(time.time())
+        # Auto-bump schema_version when any media field is set
+        if (
+            self.content_type != "text/plain"
+            or self.captured_at is not None
+            or self.media_blob_id is not None
+            or self.media_source_path is not None
+            or self.location is not None
+        ) and self.schema_version < 2:
+            self.schema_version = 2
 
     # ── Serialization ─────────────────────────────────────────────────────
 
@@ -187,6 +203,11 @@ class MemoryObject:
             "data_class": self.data_class.value,
             "schema_version": self.schema_version,
             "language": self.language,
+            "content_type": self.content_type,
+            "captured_at": self.captured_at,
+            "media_blob_id": self.media_blob_id,
+            "media_source_path": self.media_source_path,
+            "location": self.location,
         }
 
     @classmethod
@@ -215,6 +236,11 @@ class MemoryObject:
             data_class=DataClass(d.get("data_class", "GENERAL")),
             schema_version=d.get("schema_version", 1),
             language=d.get("language", "en"),
+            content_type=d.get("content_type", "text/plain"),
+            captured_at=d.get("captured_at"),
+            media_blob_id=d.get("media_blob_id"),
+            media_source_path=d.get("media_source_path"),
+            location=d.get("location"),
         )
 
 

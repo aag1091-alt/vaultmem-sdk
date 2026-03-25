@@ -26,7 +26,7 @@ Quick start::
 GitHub: https://github.com/aag1091-alt/vaultmem
 """
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 __author__ = "Avinash Gosavi"
 
 # ── Core session ──────────────────────────────────────────────────────────────
@@ -53,6 +53,18 @@ from .embedder import Embedder, LocalEmbedder, NullEmbedder, OllamaEmbedder
 from .storage import BlobStore, FileBlobStore, S3BlobStore, migrate_vault
 from .index import SearchIndex, SQLiteSearchIndex, PostgresSearchIndex, IndexRecord, IndexQuery
 from .vector_index import VectorIndex, HNSWVectorIndex
+
+# ── Media ingestion + temporal search ────────────────────────────────────────
+from .media import (
+    MediaExtractionResult,
+    MediaExtractor,
+    MediaIngester,
+    ImageExtractor,
+    AudioExtractor,
+    DocumentExtractor,
+    VideoExtractor,
+    TimeQueryParser,
+)
 
 # ── Classifier ───────────────────────────────────────────────────────────────
 from .classifier import classify, classify_with_features
@@ -101,6 +113,15 @@ __all__ = [
     # Vector index
     "VectorIndex",
     "HNSWVectorIndex",
+    # Media
+    "MediaExtractionResult",
+    "MediaExtractor",
+    "MediaIngester",
+    "ImageExtractor",
+    "AudioExtractor",
+    "DocumentExtractor",
+    "VideoExtractor",
+    "TimeQueryParser",
     # Classifier
     "classify",
     "classify_with_features",

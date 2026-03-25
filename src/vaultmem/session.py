@@ -435,6 +435,7 @@ class VaultSession:
         top_k: int = 10,
         memory_type: Optional[MemoryType] = None,
         alpha: float = 0.5,
+        parse_time: bool = False,
     ) -> list[SearchResult]:
         """
         Three-tier semantic search (AFFINITY → COMPOSITE → ATOM).
@@ -452,15 +453,35 @@ class VaultSession:
         """
         with self._rlock:
             self._require_open()
+
+            # Time-aware search: strip time phrase, pre-filter atoms by captured_at
+            time_from: Optional[int] = None
+            time_to:   Optional[int] = None
+            if parse_time and isinstance(query, str):
+                from .media import TimeQueryParser
+                time_from, time_to, query = TimeQueryParser.parse(query)
+
             if isinstance(query, str):
                 q_emb = self._embedder.embed(query)
             else:
                 q_emb = list(query)
+
             if self._use_backends:
                 return self._backend_search(q_emb, top_k=top_k, memory_type=memory_type, alpha=alpha)
+
+            # Apply time pre-filter if a time range was extracted
+            if time_from is not None and time_to is not None:
+                candidate_atoms: dict[str, MemoryObject] = {}
+                for aid, atom in self._mem.active_atoms.items():
+                    ts = atom.captured_at if atom.captured_at is not None else atom.created_at
+                    if time_from <= ts < time_to:
+                        candidate_atoms[aid] = atom
+            else:
+                candidate_atoms = self._mem.active_atoms
+
             return _search(
                 query_embedding=q_emb,
-                atoms=self._mem.active_atoms,
+                atoms=candidate_atoms,
                 top_k=top_k,
                 memory_type=memory_type,
                 alpha=alpha,
@@ -808,3 +829,246 @@ class VaultSession:
             v_norm = v / (np.linalg.norm(v) + 1e-10)
             scores[atom_id] = float(np.dot(q_norm, v_norm))
         return scores
+
+    # ── Temporal search ────────────────────────────────────────────────────
+
+    def search_by_time(
+        self,
+        from_ts: int,
+        to_ts: int,
+        *,
+        top_k: int = 200,
+        memory_type: Optional[MemoryType] = None,
+    ) -> list[MemoryObject]:
+        """
+        Browse memories by real-world event time (captured_at).
+
+        Returns atoms whose captured_at falls in [from_ts, to_ts], sorted by
+        captured_at descending. Falls back to created_at when captured_at is None.
+
+        Args:
+            from_ts:     Start of window, Unix seconds (inclusive).
+            to_ts:       End of window, Unix seconds (exclusive).
+            top_k:       Maximum results.
+            memory_type: Optional MemoryType filter.
+        """
+        with self._rlock:
+            self._require_open()
+            atoms = self._all_active_atoms(memory_type)
+            results = []
+            for atom in atoms.values():
+                ts = atom.captured_at if atom.captured_at is not None else atom.created_at
+                if from_ts <= ts < to_ts:
+                    results.append(atom)
+            results.sort(key=lambda a: a.captured_at or a.created_at, reverse=True)
+            return results[:top_k]
+
+    def diff(
+        self,
+        from_ts: int,
+        to_ts: int,
+        *,
+        top_k: int = 200,
+    ) -> list[MemoryObject]:
+        """
+        Return atoms written to the vault (by created_at) between from_ts and to_ts.
+
+        Useful for syncing, auditing, or incremental processing.
+        """
+        with self._rlock:
+            self._require_open()
+            atoms = self._all_active_atoms(None)
+            results = [
+                a for a in atoms.values()
+                if from_ts <= a.created_at <= to_ts
+            ]
+            results.sort(key=lambda a: a.created_at)
+            return results[:top_k]
+
+    def _all_active_atoms(
+        self, memory_type: Optional[MemoryType]
+    ) -> dict[str, MemoryObject]:
+        """Return all non-churned atoms (file-mode only for now)."""
+        if self._use_backends:
+            raise NotImplementedError(
+                "search_by_time/diff are not supported in backend mode in this version"
+            )
+        atoms = self._mem.active_atoms
+        if memory_type is not None:
+            atoms = {k: v for k, v in atoms.items() if v.type == memory_type}
+        return atoms
+
+    # ── Media storage ──────────────────────────────────────────────────────
+
+    @property
+    def _media_dir(self) -> Path:
+        d = self._vault_dir / "media"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def _store_media(self, media_id: str, raw_bytes: bytes) -> None:
+        """Encrypt raw media bytes and write to vault/media/{media_id}.enc."""
+        import uuid as _uuid
+        from .crypto import encrypt_atom, pack_encrypted_block
+
+        aad = _uuid.UUID(media_id).bytes
+        mek = bytes(self._mek)
+        iv, ct, tag = encrypt_atom(mek, raw_bytes, aad)
+        blob = pack_encrypted_block(iv, ct, tag)
+        dest = self._media_dir / f"{media_id}.enc"
+        dest.write_bytes(blob)
+
+    def get_media(self, media_id: str) -> bytes:
+        """Decrypt and return the raw bytes for a media blob.
+
+        Args:
+            media_id: UUID string stored in atom.media_blob_id.
+
+        Returns:
+            Decrypted raw file bytes (JPEG, MP3, PDF, etc.).
+
+        Raises:
+            FileNotFoundError: Media blob not found in vault.
+            VaultTamperedError: GCM authentication failed.
+        """
+        import uuid as _uuid
+        from .crypto import decrypt_atom, unpack_encrypted_block
+
+        self._require_open()
+        blob_path = self._media_dir / f"{media_id}.enc"
+        if not blob_path.exists():
+            raise FileNotFoundError(f"Media blob not found: {media_id}")
+
+        blob = blob_path.read_bytes()
+        aad = _uuid.UUID(media_id).bytes
+        mek = bytes(self._mek)
+        iv, ct, tag, _ = unpack_encrypted_block(blob, 0)
+        return decrypt_atom(mek, iv, ct, tag, aad)
+
+    def add_media(
+        self,
+        path: "str | Path",
+        *,
+        caption: str = "",
+        override_captured_at: Optional[int] = None,
+        data_class: Optional[DataClass] = None,
+        auto_embed: bool = True,
+        ingester: Optional[object] = None,
+    ) -> MemoryObject:
+        """
+        Ingest a media file (photo, audio, PDF, video) into the vault.
+
+        1. Runs the appropriate extractor to get transcript, EXIF date, GPS.
+        2. Encrypts and stores the raw file in vault/media/{uuid}.enc.
+        3. Builds a MemoryObject with all media fields populated.
+        4. Embeds the text content (caption + transcript) unless auto_embed=False.
+        5. Adds the atom to the in-memory state (call flush() to persist).
+
+        Args:
+            path:                 Path to the source file.
+            caption:              Optional human-written description.
+            override_captured_at: Override the EXIF/metadata timestamp.
+            data_class:           Defaults to ARCHIVAL (media atoms persist longer).
+            auto_embed:           Embed the caption+transcript (default True).
+            ingester:             Custom MediaIngester; uses default if None.
+
+        Returns:
+            The new MemoryObject (not yet flushed to disk).
+        """
+        from .media import MediaIngester
+
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Media file not found: {path}")
+
+        with self._rlock:
+            self._require_open()
+
+        _ingester = ingester or MediaIngester()
+        result = _ingester.ingest(path)
+
+        # Encrypt and store raw file
+        media_id = str(__import__("uuid").uuid4())
+        raw_bytes = path.read_bytes()
+        self._store_media(media_id, raw_bytes)
+
+        # Build content string: caption + transcript
+        parts = [p for p in (caption.strip(), result.transcript.strip()) if p]
+        content = "\n".join(parts) or path.name
+
+        effective_dc = data_class if data_class is not None else DataClass.ARCHIVAL
+        captured_ts = override_captured_at or result.captured_at
+
+        with self._rlock:
+            self._require_open()
+            owner = self._owner if self._use_backends else self._mem.owner
+            atom = MemoryObject(
+                id="",
+                type=MemoryType.EPISODIC,
+                granularity=Granularity.ATOM,
+                content=content,
+                size_tokens=estimate_tokens(content),
+                session_id=self._session_id,
+                owner=owner,
+                data_class=effective_dc,
+                content_type=result.content_type,
+                captured_at=captured_ts,
+                media_blob_id=media_id,
+                media_source_path=str(path),
+                location=result.location,
+            )
+            if auto_embed:
+                atom.embedding = self._embedder.embed(content)
+
+            if self._use_backends:
+                self._pending[atom.id] = atom
+                self._dirty = True
+            else:
+                self._mem.atoms[atom.id] = atom
+                self._mem.mark_dirty()
+
+        return atom
+
+    def add_media_batch(
+        self,
+        paths: "list[str | Path]",
+        *,
+        caption: str = "",
+        data_class: Optional[DataClass] = None,
+        progress_callback: Optional[object] = None,
+        flush_every: int = 50,
+        ingester: Optional[object] = None,
+    ) -> list[MemoryObject]:
+        """
+        Ingest multiple media files in one call.
+
+        Args:
+            paths:             List of file paths.
+            caption:           Applied to all files (use add_media for per-file captions).
+            data_class:        Defaults to ARCHIVAL.
+            progress_callback: Called as callback(current, total, path) after each file.
+            flush_every:       Auto-flush to disk every N files (0 = no auto-flush).
+            ingester:          Custom MediaIngester; uses default if None.
+
+        Returns:
+            List of created MemoryObjects.
+        """
+        atoms: list[MemoryObject] = []
+        total = len(paths)
+        _ingester = ingester or __import__("vaultmem.media", fromlist=["MediaIngester"]).MediaIngester()
+        for i, p in enumerate(paths, 1):
+            try:
+                atom = self.add_media(
+                    p,
+                    caption=caption,
+                    data_class=data_class,
+                    ingester=_ingester,
+                )
+                atoms.append(atom)
+            except Exception:
+                pass  # Skip files that fail extraction
+            if progress_callback is not None:
+                progress_callback(i, total, Path(p))
+            if flush_every and i % flush_every == 0:
+                self.flush()
+        return atoms
