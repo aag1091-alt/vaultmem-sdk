@@ -6,6 +6,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.1] — March 2026
+
+### Added
+
+**Pluggable query normalizer**
+- `QueryNormalizer` Protocol — implement `normalize(self, text: str) -> str` to preprocess search queries before they reach the embedder; injected at session creation, applied automatically when `search(..., normalize_query=True)` is called
+- `RegexQueryNormalizer` — built-in implementation; strips common English question preamble (`"What do I know about X?"` → `"X"`, `"How does X work?"` → `"X work"`, etc.) using regex; most valuable for bag-of-words / hash-projection embedders that assign equal weight to every token
+- `VaultSession.search(..., normalize_query=False)` — new keyword argument; when `True`, runs the active normalizer before embedding; defaults to `False` so sentence-transformer users are unaffected
+- `VaultSession.open()` and `VaultSession.create()` gain `query_normalizer=` keyword argument; stores the normalizer on the session for all subsequent searches
+
+**LLM normalizer example** (not shipped, implement as shown in docs):
+```python
+class GroqQueryNormalizer:
+    def __init__(self, api_key: str):
+        from groq import Groq
+        self._client = Groq(api_key=api_key)
+
+    def normalize(self, text: str) -> str:
+        resp = self._client.chat.completions.create(
+            model="llama-3.3-70b-versatile", max_tokens=30,
+            messages=[
+                {"role": "system", "content": "Extract key search terms. Return only keywords."},
+                {"role": "user", "content": text},
+            ],
+        )
+        return resp.choices[0].message.content.strip() or text
+```
+
+### Exports
+- `QueryNormalizer`, `RegexQueryNormalizer` added to top-level `vaultmem` package
+
+---
+
 ## [0.2.0] — March 2026
 
 ### Added

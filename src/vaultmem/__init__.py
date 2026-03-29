@@ -26,7 +26,7 @@ Quick start::
 GitHub: https://github.com/aag1091-alt/vaultmem
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__ = "Avinash Gosavi"
 
 # ── Core session ──────────────────────────────────────────────────────────────
@@ -64,6 +64,8 @@ from .media import (
     DocumentExtractor,
     VideoExtractor,
     TimeQueryParser,
+    QueryNormalizer,
+    RegexQueryNormalizer,
 )
 
 # ── Classifier ───────────────────────────────────────────────────────────────
@@ -122,6 +124,8 @@ __all__ = [
     "DocumentExtractor",
     "VideoExtractor",
     "TimeQueryParser",
+    "QueryNormalizer",
+    "RegexQueryNormalizer",
     # Classifier
     "classify",
     "classify_with_features",

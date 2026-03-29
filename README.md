@@ -196,11 +196,11 @@ python tests/bench_section7.py      # crypto + search latency
 ### `VaultSession`
 
 ```python
-VaultSession.create(path, *, passphrase, owner, embedder=None) -> VaultSession
-VaultSession.open(path, *, passphrase, embedder=None) -> VaultSession
+VaultSession.create(path, passphrase, owner, embedder=None, *, query_normalizer=None) -> VaultSession
+VaultSession.open(path, passphrase, embedder=None, *, query_normalizer=None) -> VaultSession
 
 session.add(text, *, memory_type=None) -> MemoryObject
-session.search(query, *, top_k=10, memory_type=None) -> list[SearchResult]
+session.search(query, *, top_k=10, memory_type=None, normalize_query=False) -> list[SearchResult]
 session.checkpoint() -> None
 session.close() -> None
 ```
@@ -214,6 +214,72 @@ class SearchResult:
     score: float       # blended score (AFFINITY) or cosine (COMPOSITE/ATOM)
     tier: str          # "AFFINITY" | "COMPOSITE" | "ATOM"
 ```
+
+---
+
+## Query Normalizer
+
+VaultMem exposes a `QueryNormalizer` Protocol so you can preprocess search
+text before it reaches the embedder — useful for conversational queries where
+question framing dilutes the semantic signal.
+
+### Built-in (regex)
+
+```python
+from vaultmem import RegexQueryNormalizer
+
+with VaultSession.open("./vault", passphrase, query_normalizer=RegexQueryNormalizer()) as s:
+    # "What do I know about Sarah Chen?" → embeds "Sarah Chen"
+    results = s.search("What do I know about Sarah Chen?", normalize_query=True)
+```
+
+Strips common English question preamble. Recommended for bag-of-words or
+hash-projection embedders. Leave `normalize_query=False` (the default) with
+`LocalEmbedder` — sentence-transformers handle question framing natively.
+
+### Custom (LLM-backed)
+
+Implement the `QueryNormalizer` Protocol to use an LLM on your own
+infrastructure for richer rewriting — acronym expansion, language
+normalisation, intent extraction:
+
+```python
+from vaultmem import QueryNormalizer  # Protocol
+
+class GroqQueryNormalizer:
+    """Uses a local Groq API key — query text stays on your machine."""
+
+    def __init__(self, api_key: str) -> None:
+        from groq import Groq
+        self._client = Groq(api_key=api_key)
+
+    def normalize(self, text: str) -> str:
+        resp = self._client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=30,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Extract the key search terms from this query. "
+                        "Return only the keywords, nothing else."
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        )
+        return resp.choices[0].message.content.strip() or text
+
+
+with VaultSession.open(
+    "./vault", passphrase,
+    query_normalizer=GroqQueryNormalizer(api_key="gsk_..."),
+) as s:
+    results = s.search("What do I know about Sarah?", normalize_query=True)
+```
+
+Any object with a `normalize(self, text: str) -> str` method satisfies the
+Protocol — no import or inheritance required.
 
 ---
 

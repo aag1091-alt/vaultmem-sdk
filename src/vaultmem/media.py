@@ -576,3 +576,84 @@ class TimeQueryParser:
             return from_ts, to_ts, remainder
 
         return None, None, query
+
+
+# ---------------------------------------------------------------------------
+# QueryNormalizer — pluggable query preprocessing before embedding
+# ---------------------------------------------------------------------------
+
+# Ordered most-specific first so "what do i know about" wins over "what"
+_PREAMBLE = re.compile(
+    r"^("
+    r"what (do i know about|is my|are my|was my|were my|did i|is|are|was|were)\s+"
+    r"|what'?s (my|the|a|an)?\s*"
+    r"|tell me (about|what about|what)\s+"
+    r"|remind me (about|of|what)\s+"
+    r"|how (does|do|did|is|are|was|were)\s+"
+    r"|who (is|was|are|were)\s+"
+    r"|when (did|was|is|do)\s+"
+    r"|where (did|was|is|do)\s+"
+    r"|do i (know|have|remember|use|eat|drink|like|prefer)\s+"
+    r"|can you (tell me|remind me)\s+"
+    r"|am i\s+"
+    r")",
+    re.IGNORECASE,
+)
+
+
+from typing import Protocol, runtime_checkable as _runtime_checkable
+
+
+@_runtime_checkable
+class QueryNormalizer(Protocol):
+    """
+    Protocol for query preprocessors injected into ``VaultSession``.
+
+    Implement this to preprocess search text before it reaches the embedder —
+    for example to use a local LLM to extract the semantic core, expand
+    acronyms, or rewrite conversational phrasing into keyword form.
+
+    The instance is stored on the session and called automatically whenever
+    ``search(..., normalize_query=True)`` is used.
+
+    Minimal implementation::
+
+        class MyNormalizer:
+            def normalize(self, text: str) -> str:
+                # call your LLM / rules engine here
+                return extracted_keywords
+
+        with VaultSession.open(vault, passphrase, query_normalizer=MyNormalizer()) as s:
+            results = s.search("What do I know about Sarah?", normalize_query=True)
+    """
+
+    def normalize(self, text: str) -> str:
+        """Return a cleaner query string. Must not return an empty string."""
+        ...
+
+
+class RegexQueryNormalizer:
+    """
+    Built-in query normalizer — strips common English question preamble using
+    regular expressions so the embedding focuses on the meaningful subject.
+
+    Most valuable for bag-of-words / hash-projection embedders that assign
+    equal weight to every token. Sentence-transformers handle question framing
+    natively via attention; leave ``normalize_query=False`` (the default) when
+    using them.
+
+    Examples::
+
+        r = RegexQueryNormalizer()
+        r.normalize("What do I know about Sarah Chen?")  # → "Sarah Chen"
+        r.normalize("How does Flash Attention work?")    # → "Flash Attention work"
+        r.normalize("Am I vegetarian?")                  # → "vegetarian"
+        r.normalize("Tell me about my cat")              # → "my cat"
+
+    Returns the original query unchanged when no preamble is detected.
+    """
+
+    def normalize(self, text: str) -> str:
+        """Strip leading question preamble and trailing '?'."""
+        stripped = _PREAMBLE.sub("", text.strip()).rstrip("?").strip()
+        return stripped if stripped else text

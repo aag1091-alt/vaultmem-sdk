@@ -121,19 +121,21 @@ class VaultSession:
         search_index: Optional[SearchIndex] = None,
         vector_index: Optional[VectorIndex] = None,
         owner: str = "",
+        query_normalizer: Optional["QueryNormalizer"] = None,
     ) -> None:
         if (blob_store is None) != (search_index is None):
             raise ValueError("blob_store and search_index must both be provided or both omitted")
 
-        self._vault_dir  = vault_dir
-        self._mem        = memory_state
-        self._mek        = mek         # bytearray — zeroed on close
-        self._data_class = data_class
-        self._lock_fd    = lock_fd
-        self._embedder   = embedder
-        self._session_id = session_id
-        self._state      = SessionState.OPEN
-        self._rlock      = threading.RLock()
+        self._vault_dir        = vault_dir
+        self._mem              = memory_state
+        self._mek              = mek         # bytearray — zeroed on close
+        self._data_class       = data_class
+        self._lock_fd          = lock_fd
+        self._embedder         = embedder
+        self._session_id       = session_id
+        self._state            = SessionState.OPEN
+        self._rlock            = threading.RLock()
+        self._query_normalizer = query_normalizer
 
         # Backend-mode state (blob_store + search_index provided)
         self._use_backends: bool = blob_store is not None
@@ -156,6 +158,7 @@ class VaultSession:
         blob_store: Optional[BlobStore] = None,
         search_index: Optional[SearchIndex] = None,
         vector_index: Optional[VectorIndex] = None,
+        query_normalizer: Optional["QueryNormalizer"] = None,
     ) -> "VaultSession":
         """
         Open an existing vault.
@@ -211,6 +214,7 @@ class VaultSession:
                     search_index=search_index,
                     vector_index=vector_index,
                     owner=meta.get("owner", ""),
+                    query_normalizer=query_normalizer,
                 )
                 if vector_index is not None:
                     vi_path = vault_dir / "vector_index.hnsw.enc"
@@ -227,6 +231,7 @@ class VaultSession:
                 lock_fd=lock_fd,
                 embedder=embedder or LocalEmbedder(),
                 session_id=str(uuid.uuid4()),
+                query_normalizer=query_normalizer,
             )
         except Exception:
             cls._release_lock(lock_fd)
@@ -246,6 +251,7 @@ class VaultSession:
         blob_store: Optional[BlobStore] = None,
         search_index: Optional[SearchIndex] = None,
         vector_index: Optional[VectorIndex] = None,
+        query_normalizer: Optional["QueryNormalizer"] = None,
     ) -> "VaultSession":
         """
         Initialise a new vault and open it.
@@ -276,6 +282,7 @@ class VaultSession:
                     search_index=search_index,
                     vector_index=vector_index,
                     owner=owner,
+                    query_normalizer=query_normalizer,
                 )
             return cls(
                 vault_dir=vault_dir,
@@ -285,6 +292,7 @@ class VaultSession:
                 lock_fd=lock_fd,
                 embedder=embedder or LocalEmbedder(),
                 session_id=str(uuid.uuid4()),
+                query_normalizer=query_normalizer,
             )
         except Exception:
             cls._release_lock(lock_fd)
@@ -436,23 +444,37 @@ class VaultSession:
         memory_type: Optional[MemoryType] = None,
         alpha: float = 0.5,
         parse_time: bool = False,
+        normalize_query: bool = False,
     ) -> list[SearchResult]:
         """
         Three-tier semantic search (AFFINITY → COMPOSITE → ATOM).
 
         Args:
-            query:       Plain text (embedded by the session embedder) or a
-                         pre-computed 384-dim unit vector.
-            top_k:       Maximum number of results.
-            memory_type: Optional MemoryType filter.
-            alpha:       AFFINITY blend weight (0 = pure cosine, 1 = pure
-                         significance). Default 0.5.
+            query:            Plain text (embedded by the session embedder) or a
+                              pre-computed 384-dim unit vector.
+            top_k:            Maximum number of results.
+            memory_type:      Optional MemoryType filter.
+            alpha:            AFFINITY blend weight (0 = pure cosine, 1 = pure
+                              significance). Default 0.5.
+            parse_time:       Strip time phrases and pre-filter by captured_at.
+            normalize_query:  Strip question preamble ("What do I know about X?"
+                              → "X") before embedding. Recommended for
+                              bag-of-words / hash-projection embedders that lack
+                              learned token importance. Leave False for
+                              sentence-transformers, which handle question framing
+                              natively.
 
         Returns:
             SearchResult list sorted by score descending.
         """
         with self._rlock:
             self._require_open()
+
+            # Normalize query: use injected normalizer or fall back to built-in regex
+            if normalize_query and isinstance(query, str):
+                from .media import RegexQueryNormalizer
+                normalizer = self._query_normalizer or RegexQueryNormalizer()
+                query = normalizer.normalize(query)
 
             # Time-aware search: strip time phrase, pre-filter atoms by captured_at
             time_from: Optional[int] = None
