@@ -6,6 +6,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.2] — April 2026
+
+### Fixed
+
+**Sanitizer: DATE_TIME tokens, ORGANIZATION mapping, and GPE location mapping**
+- Temporal expressions (`DATE_TIME`), numbers (`CARDINAL`/`ORDINAL`), percentages, money, quantities, and language names are now skipped entirely — they are never identifying PII and should not be redacted
+- spaCy backend reports organisations as `ORGANIZATION` (not `ORG`); fixed pool_type mapping so organisation names now receive natural pseudonyms (`Acme`, `Globex`, …) instead of typed tokens
+- spaCy backend reports geopolitical entities as `GPE` (not `LOCATION`); fixed pool_type mapping so location names now receive natural pseudonyms (`Springfield`, `Shelbyville`, …)
+
+---
+
 ## [0.3.1] — March 2026
 
 ### Added

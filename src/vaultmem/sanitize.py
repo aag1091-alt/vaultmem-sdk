@@ -78,6 +78,22 @@ _LOC_POOL: list[str] = [
 
 
 # ---------------------------------------------------------------------------
+# Entity type configuration
+# ---------------------------------------------------------------------------
+
+# Types that are never PII — skip entirely regardless of backend
+_SKIP_ENTITY_TYPES: frozenset[str] = frozenset({
+    "DATE_TIME",   # dates, times, durations — not identifying
+    "CARDINAL",    # numbers
+    "ORDINAL",     # first, second, …
+    "PERCENT",     # percentages
+    "MONEY",       # monetary values
+    "QUANTITY",    # measurements
+    "LANGUAGE",    # programming/spoken languages
+})
+
+
+# ---------------------------------------------------------------------------
 # Restoration helper
 # ---------------------------------------------------------------------------
 
@@ -236,6 +252,10 @@ class Sanitizer:
         results = sorted(results, key=lambda r: -r.start)
 
         for res in results:
+            # Skip non-PII entity types entirely
+            if res.entity_type in _SKIP_ENTITY_TYPES:
+                continue
+
             real = text[res.start:res.end]
 
             if owner_name and real.lower() == owner_name.lower():
@@ -245,8 +265,8 @@ class Sanitizer:
                 etype = res.entity_type
                 pool_type = (
                     "PERSON" if etype == "PERSON" else
-                    "ORG"    if etype in ("ORG", "NRP") else
-                    "LOC"    if etype == "LOCATION" else
+                    "ORG"    if etype in ("ORG", "ORGANIZATION") else
+                    "LOC"    if etype in ("LOCATION", "GPE") else
                     etype
                 )
                 pseudo = self._assign(real, pool_type)
