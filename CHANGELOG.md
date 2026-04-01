@@ -6,6 +6,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — March 2026
+
+### Added
+
+**Privacy-preserving LLM context injection (`Sanitizer`)**
+- `Sanitizer` — session-scoped PII stripper for memory context before it is sent to a cloud LLM; real values never leave the client machine in plaintext
+- Person names are replaced with natural-sounding pseudonyms (`Jordan`, `Casey`, `Morgan`, …) drawn from a pool so the LLM can address the user fluently and responses read naturally after restoration
+- Structured PII (emails, phones, SSNs, IPs, credit cards, URLs) is replaced with typed tokens (`[EMAIL_1]`, `[PHONE_1]`, …)
+- `Sanitizer.sanitize(text, owner_name=)` — strips PII and returns `(sanitized_text, restoration_map)`; `owner_name` maps the vault owner's real name to the stable `owner_pseudonym`
+- `Sanitizer.restore(text, restoration_map)` — swaps pseudonyms / tokens back into the LLM response; longest tokens replaced first to avoid partial-match collisions
+- Session-scoped stability: identical real values always produce the same pseudonym/token across multiple memories so the LLM reasons about repeated entities as one object
+- Backed by [Microsoft Presidio](https://github.com/microsoft/presidio) with `dslim/bert-base-NER` (HuggingFace transformers) — no spaCy dependency
+- `Sanitizer` exported from top-level `vaultmem` package
+
+### Extras
+- New `[presidio]` optional extra: `presidio-analyzer>=2.2`, `transformers>=4.30`, `torch>=2.0`
+  Install with: `pip install "vaultmem[presidio]"`
+
+---
+
 ## [0.2.1] — March 2026
 
 ### Added
