@@ -6,6 +6,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.1] — March 2026
+
+### Added
+
+**Sanitizer: spaCy backend option**
+- `Sanitizer(backend="spacy")` — new lightweight NER backend using `en_core_web_sm` (~12 MB, no torch); replaces `"transformers"` as the default; ideal for cloud deployments, CI, and anywhere torch is unavailable
+- `Sanitizer(backend="transformers")` — original high-accuracy backend retained for local / privacy-critical use
+- New `[spacy]` optional extra: `presidio-analyzer>=2.2`, `spacy>=3.7`; install with `pip install 'vaultmem[spacy]'` then `python -m spacy download en_core_web_sm`
+- `backend` parameter validated on init with a clear `ValueError` if an unknown value is passed
+
+---
+
 ## [0.3.0] — March 2026
 
 ### Added

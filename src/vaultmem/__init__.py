@@ -26,7 +26,7 @@ Quick start::
 GitHub: https://github.com/aag1091-alt/vaultmem
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "Avinash Gosavi"
 
 # ── Core session ──────────────────────────────────────────────────────────────

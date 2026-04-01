@@ -1,25 +1,32 @@
 """
 VaultMem context sanitizer — PII stripping before LLM injection.
 
-Uses Microsoft Presidio (with HuggingFace transformers NER — no spaCy) to
-detect and replace sensitive entities before memory context is sent to a cloud
-LLM.  A restoration map is returned so the LLM's response can be
-de-anonymised on the client side; real values never leave your machine.
+Uses Microsoft Presidio to detect and replace sensitive entities before memory
+context is sent to a cloud LLM.  Two NER backends are supported:
+
+    "spacy"        — lightweight (~12 MB model).  Good default for cloud
+                     deployments or anywhere torch is unavailable.
+                     Install: pip install 'vaultmem[spacy]'
+                              python -m spacy download en_core_web_sm
+
+    "transformers" — higher accuracy (~400 MB model, requires torch).
+                     Best for local / high-privacy deployments.
+                     Install: pip install 'vaultmem[presidio]'
 
 Person names become natural-sounding pseudonyms (e.g. "Avinash" → "Jordan")
 so the LLM addresses the user fluently and the response reads naturally after
 restoration.  Structured PII (emails, phones, SSNs, IPs, credit cards, URLs)
 becomes typed tokens ([EMAIL_1], [PHONE_1], …).
 
-Requires: pip install 'vaultmem[presidio]'
-  → presidio-analyzer, transformers, torch
-  → downloads dslim/bert-base-NER on first use (~400 MB)
-
 Usage::
 
     from vaultmem.sanitize import Sanitizer
 
-    san = Sanitizer(owner_pseudonym="Jordan")
+    # Lightweight — works on Streamlit Cloud, CI, etc.
+    san = Sanitizer(backend="spacy", owner_pseudonym="Jordan")
+
+    # High-accuracy — local / privacy-critical deployments
+    san = Sanitizer(backend="transformers", owner_pseudonym="Jordan")
 
     sanitized, rmap = san.sanitize(context, owner_name="Avinash")
     # "Avinash met Sarah at Microsoft last week, email him at a@ex.com"
@@ -93,12 +100,24 @@ class Sanitizer:
 
     Args:
         owner_pseudonym: Placeholder name used in place of the vault owner's
-                         real name.  Defaults to ``"Jordan"``.  Choose
-                         something unlikely to appear naturally in your domain.
+                         real name.  Defaults to ``"Jordan"``.
+        backend:         NER backend to use.
+                         ``"spacy"`` (default) — lightweight, no torch required;
+                         install ``vaultmem[spacy]`` + ``en_core_web_sm``.
+                         ``"transformers"`` — higher accuracy, requires torch;
+                         install ``vaultmem[presidio]``.
     """
 
-    def __init__(self, owner_pseudonym: str = "Jordan") -> None:
+    def __init__(
+        self,
+        owner_pseudonym: str = "Jordan",
+        backend: str = "spacy",
+    ) -> None:
+        if backend not in ("spacy", "transformers"):
+            raise ValueError(f"backend must be 'spacy' or 'transformers', got {backend!r}")
+
         self._owner_pseudonym = owner_pseudonym
+        self._backend = backend
 
         # real_value → pseudonym/token  (stable within this instance)
         self._forward: dict[str, str] = {}
@@ -122,22 +141,35 @@ class Sanitizer:
         except ImportError as exc:
             raise ImportError(
                 "presidio-analyzer is required for the Sanitizer.\n"
-                "Install with: pip install 'vaultmem[presidio]'"
+                "Install with: pip install 'vaultmem[spacy]' or 'vaultmem[presidio]'"
             ) from exc
 
         try:
-            provider = NlpEngineProvider(nlp_configuration={
-                "nlp_engine_name": "transformers",
-                "models": [{"lang_code": "en", "model_name": {
-                    "spacy": "en_core_web_sm",         # tokeniser only
-                    "transformers": "dslim/bert-base-NER",  # NER model
-                }}],
-            })
+            if self._backend == "spacy":
+                config = {
+                    "nlp_engine_name": "spacy",
+                    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                }
+                install_hint = (
+                    "pip install 'vaultmem[spacy]' && "
+                    "python -m spacy download en_core_web_sm"
+                )
+            else:
+                config = {
+                    "nlp_engine_name": "transformers",
+                    "models": [{"lang_code": "en", "model_name": {
+                        "spacy": "en_core_web_sm",
+                        "transformers": "dslim/bert-base-NER",
+                    }}],
+                }
+                install_hint = "pip install 'vaultmem[presidio]'"
+
+            provider = NlpEngineProvider(nlp_configuration=config)
             self._analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
         except Exception as exc:
             raise RuntimeError(
-                "Failed to initialise Presidio NLP engine.\n"
-                "Install with: pip install 'vaultmem[presidio]'"
+                f"Failed to initialise Presidio '{self._backend}' NLP engine.\n"
+                f"Install with: {install_hint}"
             ) from exc
 
     # ------------------------------------------------------------------

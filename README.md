@@ -38,7 +38,8 @@ pip install "vaultmem[ann]"           # + hnswlib (HNSWVectorIndex, O(log N) sea
 pip install "vaultmem[media]"         # + Pillow, Whisper, PyMuPDF, ffmpeg-python
 pip install "vaultmem[s3]"            # + boto3 (S3BlobStore)
 pip install "vaultmem[postgres]"      # + psycopg2-binary (PostgresSearchIndex)
-pip install "vaultmem[presidio]"      # + presidio-analyzer, transformers, torch (Sanitizer)
+pip install "vaultmem[spacy]"         # + presidio-analyzer, spaCy (Sanitizer — lightweight, no torch)
+pip install "vaultmem[presidio]"      # + presidio-analyzer, transformers, torch (Sanitizer — high accuracy)
 ```
 
 Core has no ML dependencies — just `cryptography`, `argon2-cffi`, `numpy`.
@@ -728,13 +729,19 @@ python tests/bench_recall.py           # Recall@10 / MRR on LoCoMo-10 benchmark
 When retrieved memories are injected into a cloud LLM as context, they leave the vault in plaintext. The `Sanitizer` strips PII before the text reaches the provider and restores real values in the response — the cloud never sees sensitive entities.
 
 ```bash
+# Lightweight — no torch, works on Streamlit Cloud / CI
+pip install "vaultmem[spacy]"
+python -m spacy download en_core_web_sm
+
+# High-accuracy — local / privacy-critical (requires torch, ~400 MB)
 pip install "vaultmem[presidio]"
 ```
 
 ```python
 from vaultmem import VaultSession, Sanitizer
 
-san = Sanitizer(owner_pseudonym="Jordan")  # stable fake name for the vault owner
+san = Sanitizer(backend="spacy", owner_pseudonym="Jordan")       # lightweight
+# san = Sanitizer(backend="transformers", owner_pseudonym="Jordan")  # high-accuracy  # stable fake name for the vault owner
 
 with VaultSession.open("./my_vault", "s3cr3t") as s:
     results = s.search("my manager", top_k=3)
@@ -753,7 +760,7 @@ clean = san.restore(response, rmap)
 ```
 
 **How it works:**
-- Uses [Microsoft Presidio](https://github.com/microsoft/presidio) with `dslim/bert-base-NER` (HuggingFace, no spaCy) for entity detection
+- Two backends: `"spacy"` (default, ~12 MB, no torch — good for cloud) and `"transformers"` (higher accuracy, ~400 MB, requires torch)
 - Person names → natural pseudonyms from a pool (`Jordan`, `Casey`, `Morgan`, …) so LLM responses read fluently
 - Structured PII (emails, phones, SSNs, IPs, credit cards, URLs) → typed tokens (`[EMAIL_1]`, `[PHONE_1]`, …)
 - Session-scoped: same entity always gets the same pseudonym across memories so the LLM can reason about them as one object

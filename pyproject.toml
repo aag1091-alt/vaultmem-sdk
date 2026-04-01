@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaultmem"
-version = "0.3.0"
+version = "0.3.1"
 description = "Zero-knowledge encrypted memory library for personal AI agents"
 readme = "README.md"
 license = "MIT"
@@ -58,7 +58,13 @@ media = [
     "openai-whisper>=20240930",
     "ffmpeg-python>=0.2",
 ]
-# PII detection — PERSON, ORG, LOC + structured PII (no spaCy)
+# PII detection — lightweight spaCy backend (~12 MB model, no torch)
+# After install run: python -m spacy download en_core_web_sm
+spacy = [
+    "presidio-analyzer>=2.2",
+    "spacy>=3.7",
+]
+# PII detection — high-accuracy transformers backend (~400 MB, requires torch)
 presidio = [
     "presidio-analyzer>=2.2",
     "transformers>=4.30",
