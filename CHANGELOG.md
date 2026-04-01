@@ -6,6 +6,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.3] — April 2026
+
+### Fixed
+
+**Sanitizer: case-insensitive entity deduplication**
+- "Sarah Chen" in a memory and "sarah chen" in the query now resolve to the same pseudonym; previously the query received a fresh pseudonym (e.g. "Casey") because the forward-map lookup was case-sensitive, causing the LLM to see two different names for the same person
+- `_forward` keys are now normalised to lowercase; first-seen casing is preserved in a new `_canonical` map so restoration returns the original capitalisation
+
+---
+
 ## [0.3.2] — April 2026
 
 ### Fixed

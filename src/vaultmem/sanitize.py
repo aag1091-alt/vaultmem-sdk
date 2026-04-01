@@ -135,8 +135,11 @@ class Sanitizer:
         self._owner_pseudonym = owner_pseudonym
         self._backend = backend
 
-        # real_value → pseudonym/token  (stable within this instance)
+        # lowercase(real_value) → pseudonym/token  (stable within this instance)
         self._forward: dict[str, str] = {}
+
+        # lowercase(real_value) → first-seen original casing (used for restoration)
+        self._canonical: dict[str, str] = {}
 
         # counters for typed tokens ([EMAIL_1], [PHONE_2], …)
         self._token_counters: dict[str, int] = {}
@@ -193,9 +196,17 @@ class Sanitizer:
     # ------------------------------------------------------------------
 
     def _assign(self, real: str, entity_type: str) -> str:
-        """Return stable pseudonym/token for *real*, creating one if new."""
-        if real in self._forward:
-            return self._forward[real]
+        """Return stable pseudonym/token for *real*, creating one if new.
+
+        Lookup and storage use a lowercase key so "Sarah Chen" and "sarah chen"
+        always resolve to the same pseudonym.
+        """
+        key = real.lower()
+        if key in self._forward:
+            return self._forward[key]
+
+        # Remember the first-seen casing for restoration
+        self._canonical[key] = real
 
         used = set(self._forward.values())
         pools: dict[str, list[str]] = {
@@ -211,14 +222,14 @@ class Sanitizer:
                 candidate = pool[(start + offset) % len(pool)]
                 if candidate not in used:
                     self._pool_idx[entity_type] = (start + offset + 1) % len(pool)
-                    self._forward[real] = candidate
+                    self._forward[key] = candidate
                     return candidate
             # Pool exhausted — fall through to typed token
 
         n = self._token_counters.get(entity_type, 0) + 1
         self._token_counters[entity_type] = n
         token = f"[{entity_type}_{n}]"
-        self._forward[real] = token
+        self._forward[key] = token
         return token
 
     # ------------------------------------------------------------------
@@ -260,7 +271,9 @@ class Sanitizer:
 
             if owner_name and real.lower() == owner_name.lower():
                 pseudo = self._owner_pseudonym
-                self._forward.setdefault(real, pseudo)
+                key = real.lower()
+                self._canonical.setdefault(key, real)
+                self._forward.setdefault(key, pseudo)
             else:
                 etype = res.entity_type
                 pool_type = (
@@ -273,7 +286,10 @@ class Sanitizer:
 
             text = text[: res.start] + pseudo + text[res.end:]
 
-        restoration_map = {pseudo: real for real, pseudo in self._forward.items()}
+        restoration_map = {
+            pseudo: self._canonical.get(key, key)
+            for key, pseudo in self._forward.items()
+        }
         return text, restoration_map
 
     # ------------------------------------------------------------------
